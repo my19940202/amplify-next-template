@@ -1,13 +1,18 @@
 body {
     margin: 0;
     background: linear-gradient(180deg, rgb(117, 81, 194), rgb(255, 255, 255));
-    display: flex;
     font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-    height: 100vh;
-    width: 100vw;
+    min-height: 100vh;
+  }
+
+/* 登录/注册页保持居中 */
+body.auth-page {
+    display: flex;
     justify-content: center;
     align-items: center;
-  }
+    height: 100vh;
+    width: 100vw;
+}
   
   main {
     display: flex;

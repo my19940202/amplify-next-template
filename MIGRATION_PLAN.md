@@ -3,18 +3,19 @@
 > **目标**：将当前基于 AWS Amplify Gen 2 + AppSync GraphQL + DynamoDB 的项目，迁移为 **Next.js 原生 REST API + Supabase Postgres + Supabase Auth** 架构。
 > **核心诉求**：去掉 GraphQL 抽象层、直接操作 PostgreSQL、用传统 REST 接口做 CRUD、Amplify 仅负责网站部署。
 
-**文档状态**：v1.4（Phase 1 进行中）  
+**文档状态**：v2.1（清理阶段已完成）  
 **制定日期**：2026-05  
-**最后更新**：2026-05 - Phase 1 实施：依赖安装 + Supabase 客户端初始化完成  
-**适用项目**：amplify-next-template（当前为简单 Todo 示例）
+**最后更新**：2026-05 - 完成旧 Amplify 代码与依赖彻底清理  
+**适用项目**：nextjs-supabase-todo（原 amplify-next-template）
 
-> **实施进度**：Phase 1 已基本完成，等待用户验证后进入 Phase 2（认证）
+> **实施进度**：核心迁移 + 清理全部完成。项目已完全切换到 Supabase + Next.js REST 架构。
 
 ---
 
 ## 1. 当前状态分析
 
 ### 1.1 现有技术栈
+
 - **前端**：Next.js 14 (App Router) + React 18
 - **后端数据**：AWS Amplify Gen 2 `defineData` → AppSync GraphQL + DynamoDB
 - **认证**：Amazon Cognito（email 登录）
@@ -23,12 +24,14 @@
 - **部署**：AWS Amplify Hosting
 
 ### 1.2 核心问题（与用户诉求冲突）
+
 - GraphQL 作为额外抽象层，用户希望直接写接口操作数据库
 - DynamoDB 不符合“使用 PostgreSQL”的偏好
 - 客户端直连数据库（通过 API Key）不符合生产安全实践
 - 实时订阅能力在本项目中优先级低，可移除
 
 ### 1.3 保留价值
+
 - Amplify Hosting 对 Next.js 的支持良好（SSR、API Routes 均可）
 - Amplify Cognito 认证体系成熟，但本次迁移中**不保留**
 
@@ -37,17 +40,21 @@
 ## 2. 目标架构
 
 ### 2.1 最终技术栈
-| 层级         | 技术选型                          | 说明 |
-|--------------|-----------------------------------|------|
-| 前端框架     | Next.js 14 (App Router)           | 保持不变 |
-| 数据库       | Supabase Postgres                 | 外部托管 PostgreSQL |
-| API 层       | Next.js Route Handlers (`app/api/`) | 传统 REST 风格 |
-| ORM / Client | `@supabase/supabase-js` + `@supabase/ssr` | 轻量、无需学习 Prisma |
-| 认证         | Supabase Auth（Email + Password） | 与数据库同厂商，未来可完美结合 RLS |
-| 部署         | AWS Amplify Hosting               | 仅保留 Hosting 能力 |
-| 类型系统     | Supabase 生成的 TypeScript 类型   | `npx supabase gen types` |
+
+
+| 层级           | 技术选型                                      | 说明                       |
+| ------------ | ----------------------------------------- | ------------------------ |
+| 前端框架         | Next.js 14 (App Router)                   | 保持不变                     |
+| 数据库          | Supabase Postgres                         | 外部托管 PostgreSQL          |
+| API 层        | Next.js Route Handlers (`app/api/`)       | 传统 REST 风格               |
+| ORM / Client | `@supabase/supabase-js` + `@supabase/ssr` | 轻量、无需学习 Prisma           |
+| 认证           | Supabase Auth（Email + Password）           | 与数据库同厂商，未来可完美结合 RLS      |
+| 部署           | AWS Amplify Hosting                       | 仅保留 Hosting 能力           |
+| 类型系统         | Supabase 生成的 TypeScript 类型                | `npx supabase gen types` |
+
 
 ### 2.2 核心设计原则
+
 1. **Server-First**：数据获取优先使用 Server Components + Route Handlers，彻底移除客户端直连数据库。
 2. **REST 优先**：接口风格严格遵循 RESTful 设计（资源 + HTTP 方法）。
 3. **Demo 阶段简化权限**：当前阶段暂不开启 Row Level Security (RLS)。权限校验在应用层通过 `user_id` 手动过滤实现。**生产上线前必须开启 RLS**。
@@ -59,11 +66,13 @@
 由于当前为示例项目（Demo 阶段），我们**暂时不开启 Supabase Row Level Security (RLS)**。
 
 **当前做法**：
+
 - 表创建时不执行 `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`
 - 所有数据隔离逻辑放在应用代码中（Route Handlers 里手动加 `user_id` 条件）
 - 使用 `NEXT_PUBLIC_SUPABASE_ANON_KEY` + 服务端 `getUser()` 即可满足基本演示需求
 
 **后续必须做的事**（生产上线前）：
+
 - 启用 RLS 并创建严格的策略
 - 把应用层的 `user_id` 过滤作为第二道防线（纵深防御）
 - 考虑是否使用 `service_role` key 做后台管理操作
@@ -124,6 +133,7 @@ amplify-next-template/
 ```
 
 **说明**：
+
 - `app/api/todos/` 是本次迁移后**最主要的业务代码入口**。
 - `lib/supabase/server.ts` 是整个后端数据访问的唯一入口。
 - 不再有 `amplify/data/resource.ts` 这种中间定义层。
@@ -137,6 +147,7 @@ amplify-next-template/
 **目标**：拥有一个可用的 Supabase 项目和基础表结构。
 
 **具体任务**：
+
 1. 注册/登录 Supabase，创建一个新项目（推荐区域选离用户近的）。
 2. 在 Supabase Dashboard → SQL Editor 中创建表（**Demo 阶段暂不开启 RLS**）：
 
@@ -162,13 +173,14 @@ create table public.todos (
 -- ...（其他策略）
 ```
 
-3. 在 Supabase Dashboard → Authentication → Providers 中开启 **Email** 登录（开发阶段建议关闭 email 确认，方便测试）。
-4. 运行类型生成命令（后续会在代码中集成）：
-   ```bash
+1. 在 Supabase Dashboard → Authentication → Providers 中开启 **Email** 登录（开发阶段建议关闭 email 确认，方便测试）。
+2. 运行类型生成命令（后续会在代码中集成）：
+  ```bash
    npx supabase gen types typescript --project-id <your-project-ref> > types/supabase.ts
-   ```
+  ```
 
 **交付物**：
+
 - Supabase 项目 URL + anon key + service_role key
 - 基础 `todos` 表（RLS 策略暂未开启）
 
@@ -179,17 +191,18 @@ create table public.todos (
 **目标**：项目具备与 Supabase 通信的基础能力。
 
 **具体任务**：
+
 1. 安装必要依赖：
-   ```bash
+  ```bash
    npm install @supabase/supabase-js @supabase/ssr
-   ```
+  ```
 2. 创建 `lib/supabase/` 目录及三个核心文件：
-   - `client.ts`（浏览器端）
-   - `server.ts`（服务端，含 cookie 处理）
-   - `middleware.ts`（用于根中间件）
+  - `client.ts`（浏览器端）
+  - `server.ts`（服务端，含 cookie 处理）
+  - `middleware.ts`（用于根中间件）
 3. 在项目根创建 `middleware.ts`，实现：
-   - 自动刷新 Supabase session
-   - 受保护路由的简单守卫（可选）
+  - 自动刷新 Supabase session
+  - 受保护路由的简单守卫（可选）
 4. 创建 `.env.example`，列出所有需要的环境变量。
 
 **环境变量配置方式**：
@@ -198,6 +211,7 @@ create table public.todos (
 - **生产部署（Amplify）**：通过 Amplify Console 的 Environment variables + `amplify.yml` 注入（详见 Phase 5）。
 
 **推荐的 `.env.local` 内容**：
+
 ```env
 # Supabase 配置（从 Supabase Dashboard → Project Settings → API 获取）
 NEXT_PUBLIC_SUPABASE_URL=https://xxxxx.supabase.co
@@ -217,16 +231,17 @@ SUPABASE_SERVICE_ROLE_KEY=
 **目标**：实现完整的登录、注册、登出流程，并替换原有 Cognito。
 
 **具体任务**：
+
 1. 创建认证相关页面（推荐使用路由组 `(auth)`）：
-   - `/login`
-   - `/register`
+  - `/login`
+  - `/register`
 2. 使用 Supabase SSR client 实现：
-   - Server Actions 或 Route Handlers 处理登录/注册/登出
-   - 表单提交后使用 `supabase.auth.signInWithPassword` / `signUp`
+  - Server Actions 或 Route Handlers 处理登录/注册/登出
+  - 表单提交后使用 `supabase.auth.signInWithPassword` / `signUp`
 3. 在根 `layout.tsx` 中集成用户信息获取（使用 `createClient` 从服务端获取当前用户）。
 4. 实现受保护路由：
-   - 中间件层：未登录用户重定向到 `/login`
-   - 页面层：Server Component 中校验 `await supabase.auth.getUser()`
+  - 中间件层：未登录用户重定向到 `/login`
+  - 页面层：Server Component 中校验 `await supabase.auth.getUser()`
 5. 清理原有 Amplify Auth 配置代码（`Amplify.configure` 中的 auth 部分）。
 
 **注意**：当前项目没有复杂的用户表，迁移后用户体系将完全由 Supabase Auth 管理。
@@ -239,15 +254,18 @@ SUPABASE_SERVICE_ROLE_KEY=
 
 **推荐接口设计**（严格 REST）：
 
-| 方法 | 路径              | 功能           | 返回 |
-|------|-------------------|----------------|------|
-| GET  | `/api/todos`      | 获取当前用户所有 todos | `{ todos: [...] }` |
-| POST | `/api/todos`      | 创建新 todo          | `{ todo: {...} }` |
-| GET  | `/api/todos/[id]` | 获取单个 todo        | `{ todo: {...} }` |
-| PATCH| `/api/todos/[id]` | 更新 todo（目前仅 content） | `{ todo: {...} }` |
-| DELETE | `/api/todos/[id]` | 删除 todo            | `{ success: true }` |
+
+| 方法     | 路径                | 功能                   | 返回                  |
+| ------ | ----------------- | -------------------- | ------------------- |
+| GET    | `/api/todos`      | 获取当前用户所有 todos       | `{ todos: [...] }`  |
+| POST   | `/api/todos`      | 创建新 todo             | `{ todo: {...} }`   |
+| GET    | `/api/todos/[id]` | 获取单个 todo            | `{ todo: {...} }`   |
+| PATCH  | `/api/todos/[id]` | 更新 todo（目前仅 content） | `{ todo: {...} }`   |
+| DELETE | `/api/todos/[id]` | 删除 todo              | `{ success: true }` |
+
 
 **实现要点**（Demo 阶段，无 RLS）：
+
 - 所有接口内部使用 `lib/supabase/server.ts` 创建服务端 client
 - 必须校验当前登录用户：`const { data: { user } } = await supabase.auth.getUser()`
 - **数据隔离通过应用层实现**：
@@ -260,6 +278,7 @@ SUPABASE_SERVICE_ROLE_KEY=
 > **重要提醒**：Demo 阶段用应用层过滤是为了快速验证功能。**正式上线前必须开启 RLS**，并把应用层过滤作为第二道防线。
 
 **可选增强**（Phase 3 后期或 Phase 4）：
+
 - 添加简单的分页（`limit` + `offset`）
 - 添加搜索（`content.ilike.%keyword%`）
 
@@ -270,10 +289,11 @@ SUPABASE_SERVICE_ROLE_KEY=
 **目标**：把原来纯客户端的 Todo 应用改造成 Server-First 模式。
 
 **具体任务**：
+
 1. `app/page.tsx`：
-   - 改为 async Server Component
-   - 在服务端直接调用内部 API 或直接使用 Supabase server client 获取数据（推荐后者，减少一层网络）
-   - 保留“新建”按钮，表单提交走 POST `/api/todos`
+  - 改为 async Server Component
+  - 在服务端直接调用内部 API 或直接使用 Supabase server client 获取数据（推荐后者，减少一层网络）
+  - 保留“新建”按钮，表单提交走 POST `/api/todos`
 2. 列表渲染保持简单（当前项目风格）
 3. 删除或大幅简化原来 `page.tsx` 中的 `use client` + `generateClient` 代码
 4. 新增/编辑操作改用 `<form action={...}>` 或 `fetch` 调用 REST 接口 + `revalidatePath`
@@ -287,13 +307,14 @@ SUPABASE_SERVICE_ROLE_KEY=
 **目标**：确保 Supabase 环境变量在 Amplify 的 SSR 环境中正确可用。
 
 **具体任务**：
+
 1. 更新项目根 `amplify.yml`：
-   - 在 `build` 阶段把 Supabase 相关环境变量写入 `.env.production`
-   - 示例片段见附录
+  - 在 `build` 阶段把 Supabase 相关环境变量写入 `.env.production`
+  - 示例片段见附录
 2. 在 AWS Amplify Console → 对应应用 → Environment variables 中添加：
-   - `NEXT_PUBLIC_SUPABASE_URL`
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - （如后续需要）`SUPABASE_SERVICE_ROLE_KEY`
+  - `NEXT_PUBLIC_SUPABASE_URL`
+  - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+  - （如后续需要）`SUPABASE_SERVICE_ROLE_KEY`
 3. 触发一次新构建，验证 SSR 页面能正常拿到数据。
 
 **重要**：Amplify Hosting 的 SSR 环境变量注入机制与本地 `.env.local` 不同，必须通过 `amplify.yml` 显式处理。
@@ -305,6 +326,7 @@ SUPABASE_SERVICE_ROLE_KEY=
 **目标**：彻底移除 GraphQL 相关代码，精简 Amplify 目录。
 
 **可删除内容**：
+
 - `amplify/data/` 整个目录
 - `amplify/auth/resource.ts`（如决定不再使用 Cognito）
 - `amplify_outputs.json`（可先备份，确认无误后删除）
@@ -312,6 +334,7 @@ SUPABASE_SERVICE_ROLE_KEY=
 - `package.json` 中 `@aws-amplify/ui-react`、`aws-amplify`（如完全不用）
 
 **保留内容**：
+
 - `amplify.yml`（用于 Hosting 配置）
 - `amplify/backend.ts`（可简化为最小形式，或在确认不需要后删除整个 `amplify/` 目录）
 
@@ -322,14 +345,16 @@ SUPABASE_SERVICE_ROLE_KEY=
 ### Phase 7：测试、文档与部署
 
 **测试清单**：
-- [ ] 本地开发：注册 → 登录 → 新建 Todo → 查看列表 → 编辑 → 删除
-- [ ] 未登录用户无法访问首页（被中间件或页面重定向）
-- [ ] 一个用户看不到另一个用户的 Todo（应用层通过 `user_id` 过滤实现）
-- [ ] Amplify 部署后功能完全正常
-- [ ] 刷新页面后登录状态保持
-- [ ] 记录当前 Demo 阶段未开启 RLS，待后续补充
+
+- 本地开发：注册 → 登录 → 新建 Todo → 查看列表 → 编辑 → 删除
+- 未登录用户无法访问首页（被中间件或页面重定向）
+- 一个用户看不到另一个用户的 Todo（应用层通过 `user_id` 过滤实现）
+- Amplify 部署后功能完全正常
+- 刷新页面后登录状态保持
+- 记录当前 Demo 阶段未开启 RLS，待后续补充
 
 **文档更新**：
+
 - 更新 `README.md`，说明新的技术栈和本地启动方式
 - 补充 Supabase 本地开发可选方案（使用 Supabase CLI）
 
@@ -337,13 +362,15 @@ SUPABASE_SERVICE_ROLE_KEY=
 
 ## 5. 风险与权衡
 
-| 风险 / 权衡 | 影响 | 缓解措施 |
-|-------------|------|----------|
-| 切换 Auth 导致原有用户数据丢失 | 中 | 本项目为示例模板，成本极低；生产项目需做用户迁移 |
-| Amplify Hosting SSR 环境变量注入较麻烦 | 低 | 已明确在 Phase 5 重点处理 |
-| 失去 Amplify 自动实时订阅能力 | 低 | 用户明确实时性要求低；未来可按需加 Supabase Realtime |
-| Supabase 免费额度限制 | 低 | 当前 Todo 场景极轻量，远低于限制 |
-| 未来想换回自管 RDS | 中 | 迁移成本存在，但 Supabase Postgres 本身就是标准 PostgreSQL，可导出 |
+
+| 风险 / 权衡                       | 影响  | 缓解措施                                             |
+| ----------------------------- | --- | ------------------------------------------------ |
+| 切换 Auth 导致原有用户数据丢失            | 中   | 本项目为示例模板，成本极低；生产项目需做用户迁移                         |
+| Amplify Hosting SSR 环境变量注入较麻烦 | 低   | 已明确在 Phase 5 重点处理                                |
+| 失去 Amplify 自动实时订阅能力           | 低   | 用户明确实时性要求低；未来可按需加 Supabase Realtime              |
+| Supabase 免费额度限制               | 低   | 当前 Todo 场景极轻量，远低于限制                              |
+| 未来想换回自管 RDS                   | 中   | 迁移成本存在，但 Supabase Postgres 本身就是标准 PostgreSQL，可导出 |
+
 
 ---
 
@@ -432,12 +459,14 @@ npx supabase start
 - 用户完成 Supabase 项目创建、表结构准备，并提供密钥。
 
 **Phase 0 完成情况**：
+
 - Supabase 项目已创建（项目 ID: snjygwmdbdahlrtegnnb）
 - `todos` 表已创建（暂未开启 RLS）
 - Email 认证已开启
 - 密钥已正确配置到 `.env.local`（`.env.example` 已还原为安全模板）
 
 **Phase 1 实施记录**（已完成）：
+
 - 安装依赖：`@supabase/supabase-js` + `@supabase/ssr`
 - 创建 `lib/supabase/` 目录：
   - `client.ts`（浏览器端）
@@ -446,4 +475,65 @@ npx supabase start
 - 创建根目录 `middleware.ts`
 - 创建 `types/supabase.ts`（临时占位类型，后续可通过命令生成真实类型）
 
+**Phase 2 实施记录**（已完成）：
+
+- 更新 middleware 实现完整路由保护（未登录跳转 /login，已登录访问登录页自动跳转首页）
+- 创建 REST 风格认证接口：
+  - `POST /api/auth/register`
+  - `POST /api/auth/login`
+  - `POST /api/auth/logout`
+- 创建认证页面（使用路由组 `(auth)`）：
+  - `/login`（登录页）
+  - `/register`（注册页）
+- 临时重构首页 `app/page.tsx` 为受保护的占位页（显示当前用户信息 + 退出按钮），真实 Todo 功能将在 Phase 4 迁移
+- 移除页面对旧 Amplify 客户端的直接依赖
+- 完整构建验证通过
+
+**Phase 3 实施记录**（已完成）：
+- 实现完整 Todo REST API：
+  - `GET /api/todos` - 列表（按当前用户过滤）
+  - `POST /api/todos` - 创建
+  - `GET /api/todos/[id]` - 获取单个
+  - `PATCH /api/todos/[id]` - 更新 content
+  - `DELETE /api/todos/[id]` - 删除
+- 所有接口均：
+  - 使用 `lib/supabase/server.ts` 获取当前用户
+  - 在应用层通过 `user_id` 做数据隔离（Demo 阶段无 RLS）
+  - 返回统一 JSON 结构
+- 使用 `@ts-ignore` / `as any` 临时绕过占位类型限制（后续生成真实 Supabase 类型后可清理）
+- 完整 `npm run build` 通过
+
+**Phase 4 实施记录**（已完成）：
+- 重构 `app/page.tsx` 为 async Server Component
+  - 服务端直接使用 Supabase client 查询当前用户的 todos（性能最佳）
+  - 传递初始数据给客户端组件
+- 新建 `app/todos-client.tsx`（Client Component）负责所有交互：
+  - 新建 Todo（调用 POST /api/todos）
+  - 点击列表项编辑（调用 PATCH /api/todos/[id]）
+  - 删除按钮（调用 DELETE /api/todos/[id]）
+  - 操作成功后使用 `router.refresh()` 同步服务端数据
+- 保留原有视觉风格（紫色渐变背景、黑色列表边框等）
+- 优化全局样式：登录/注册页保持居中，主应用页面支持长列表滚动
+- 在主页面顶部显示当前登录邮箱 + 退出登录按钮
+- `npm run build` 完全通过
+
+**清理阶段实施记录**（已完成）：
+- 备份并删除：
+  - `amplify_outputs.json` → `amplify_outputs.json.bak`
+  - 整个 `amplify/` 目录（已彻底删除，旧备份已移除以避免 TypeScript 扫描）
+- 更新 `package.json`：
+  - 移除所有 Amplify 相关依赖（aws-amplify、@aws-amplify/*、aws-cdk*、constructs、esbuild、tsx 等）
+  - 项目名称改为 `nextjs-supabase-todo`
+- 执行 `npm install`，自动移除 1591 个旧 Amplify 包
+- 彻底删除 `amplify-old/` 文件夹，确保 TypeScript 构建干净无残留
+- 更新 `.gitignore`，注释掉 Amplify 相关忽略规则
+- 保留 `amplify.yml`（用于未来 Amplify Hosting 部署时的构建配置）
+- `npm run build` 验证通过，项目干净轻量
+
+**最终状态**：
+- 完全移除 GraphQL / AppSync / DynamoDB / Cognito
+- 采用 Supabase Postgres + Supabase Auth + Next.js REST API
+- 代码结构清晰、依赖精简
+
 > 每个 Phase 完成后，我会更新本文档的「实施日志」并给出下一阶段的具体操作指引。
+

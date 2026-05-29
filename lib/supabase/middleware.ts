@@ -37,12 +37,23 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  // （Demo 阶段暂时不做强制登录保护，后面 Phase 2 会加上）
-  // if (!user && !request.nextUrl.pathname.startsWith('/login')) {
-  //   const url = request.nextUrl.clone()
-  //   url.pathname = '/login'
-  //   return NextResponse.redirect(url)
-  // }
+  const isAuthRoute = request.nextUrl.pathname.startsWith('/login') ||
+                      request.nextUrl.pathname.startsWith('/register') ||
+                      request.nextUrl.pathname.startsWith('/api/auth')
+
+  // Demo 阶段：保护除认证页面和 API 之外的所有路由
+  if (!user && !isAuthRoute) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/login'
+    return NextResponse.redirect(url)
+  }
+
+  // 已登录用户访问登录/注册页时重定向到首页
+  if (user && isAuthRoute) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/'
+    return NextResponse.redirect(url)
+  }
 
   return supabaseResponse
 }

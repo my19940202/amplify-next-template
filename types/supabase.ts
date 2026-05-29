@@ -53,3 +53,6 @@ export interface Database {
     }
   }
 }
+
+// 临时类型别名，解决占位类型中 Update 为 never 的问题
+export type TodoUpdate = Database['public']['Tables']['todos']['Update']

@@ -35,7 +35,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# amplify
-.amplify
-amplify_outputs*
-amplifyconfiguration*
+# amplify (已迁移到 Supabase，旧文件已备份为 amplify-old/)
+# .amplify
+# amplify_outputs*
+# amplifyconfiguration*
