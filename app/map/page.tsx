@@ -1,194 +1,364 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  AnalysisQuotaError,
+  fetchReverseGeocode,
+  fetchSiteAnalysis,
+  fetchUsageStatus,
+} from "@/lib/analysis/client";
+import {
+  exportReport,
+  getExportableSites,
+  type ExportFormat,
+} from "@/lib/report/export-client";
+import type { UsageInfo } from "@/lib/types/usage";
+import {
+  createSiteCandidate,
+  type SiteCandidate,
+  type SiteStage,
+} from "@/lib/types/site";
+import MapCanvas from "./components/MapCanvas";
+import QuotaModal from "./components/QuotaModal";
+import SiteDetailDrawer from "./components/SiteDetailDrawer";
+import SitePanel from "./components/SitePanel";
+import StreetViewModal from "./components/StreetViewModal";
 
-const PLACE_ID = "ChIJ_yMf_u0ABDQRVFlgX-wlYnA";
-const MAP_CENTER = { lat: 22.482614504308923, lng: 114.10144265418096 };
+const DEFAULT_CENTER = { lat: 37.7749, lng: -122.4194 };
+const USER_LOCATION_ZOOM = 15;
 
-type PlaceDetails = {
-  name: string;
-  formattedAddress: string;
-  placeId: string;
-};
+type GeoStatus = "pending" | "granted" | "denied" | "unavailable";
 
-function waitForGoogleMaps(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (window.google?.maps) {
-      resolve();
-      return;
-    }
-
-    let attempts = 0;
-    const interval = window.setInterval(() => {
-      attempts += 1;
-      if (window.google?.maps) {
-        window.clearInterval(interval);
-        resolve();
-      } else if (attempts > 100) {
-        window.clearInterval(interval);
-        reject(new Error("Google Maps failed to load"));
-      }
-    }, 100);
-  });
-}
-
-export default function MapPage() {
-  const mapRef = useRef<HTMLDivElement>(null);
-  const [place, setPlace] = useState<PlaceDetails | null>(null);
+export default function MapWorkspacePage() {
+  const [sites, setSites] = useState<SiteCandidate[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [mapCenter, setMapCenter] = useState(DEFAULT_CENTER);
+  const [geoStatus, setGeoStatus] = useState<GeoStatus>("pending");
+  const [analyzingIds, setAnalyzingIds] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const mapInstanceRef = useRef<google.maps.Map | null>(null);
+  const geoSiteAddedRef = useRef(false);
+  const pendingUserLocationRef = useRef<{ lat: number; lng: number } | null>(
+    null
+  );
+  const [usage, setUsage] = useState<UsageInfo | null>(null);
+  const [quotaModalUsage, setQuotaModalUsage] = useState<UsageInfo | null>(
+    null
+  );
+  const [streetViewSite, setStreetViewSite] = useState<SiteCandidate | null>(
+    null
+  );
 
   useEffect(() => {
-    if (!process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY) {
-      setError("Missing NEXT_PUBLIC_GOOGLE_MAPS_API_KEY environment variable.");
-      setLoading(false);
+    fetchUsageStatus()
+      .then(setUsage)
+      .catch(() => {
+        // Usage API optional if Supabase not configured
+      });
+  }, []);
+
+  const selectedSite = useMemo(
+    () => sites.find((s) => s.id === selectedId) ?? null,
+    [sites, selectedId]
+  );
+
+  const isAnalyzing = analyzingIds.size > 0;
+
+  const exportableSites = useMemo(
+    () => getExportableSites(sites, selectedId),
+    [sites, selectedId]
+  );
+
+  const handleExport = useCallback(
+    (format: ExportFormat) => {
+      try {
+        exportReport(exportableSites, format);
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Export failed";
+        setError(message);
+      }
+    },
+    [exportableSites]
+  );
+
+  const runAnalysis = useCallback(
+    async (siteId: string, lat: number, lng: number) => {
+      setAnalyzingIds((prev) => new Set(prev).add(siteId));
+      setError(null);
+
+      try {
+        const result = await fetchSiteAnalysis(lat, lng);
+        if (result.usage) setUsage(result.usage);
+
+        const { usage: _usage, ...analysis } = result;
+
+        setSites((prev) =>
+          prev.map((site) =>
+            site.id === siteId
+              ? {
+                  ...site,
+                  score: analysis.overallScore,
+                  scoreLabel: analysis.scoreLabel,
+                  analysis,
+                  stage: "analyzed",
+                }
+              : site
+          )
+        );
+      } catch (err) {
+        if (err instanceof AnalysisQuotaError) {
+          setUsage(err.usage);
+          setQuotaModalUsage(err.usage);
+          setError(err.message);
+        } else {
+          const message =
+            err instanceof Error ? err.message : "Analysis failed";
+          setError(message);
+        }
+      } finally {
+        setAnalyzingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(siteId);
+          return next;
+        });
+      }
+    },
+    []
+  );
+
+  const addAndAnalyze = useCallback(
+    async (address: string, lat: number, lng: number) => {
+      if (usage && usage.remaining <= 0) {
+        setQuotaModalUsage(usage);
+        setError("Monthly analysis limit reached");
+        return;
+      }
+
+      const site = createSiteCandidate({
+        address,
+        lat,
+        lng,
+        stage: "pending",
+      });
+      setSites((prev) => [...prev, site]);
+      setSelectedId(site.id);
+      await runAnalysis(site.id, lat, lng);
+    },
+    [runAnalysis, usage]
+  );
+
+  const addAndAnalyzeRef = useRef(addAndAnalyze);
+  addAndAnalyzeRef.current = addAndAnalyze;
+
+  useEffect(() => {
+    if (!navigator.geolocation) {
+      setGeoStatus("unavailable");
       return;
     }
 
-    let cancelled = false;
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        setMapCenter({ lat, lng });
+        setGeoStatus("granted");
+        pendingUserLocationRef.current = { lat, lng };
 
-    async function initMap() {
-      try {
-        await waitForGoogleMaps();
-        if (cancelled || !mapRef.current) return;
-
-        const map = new google.maps.Map(mapRef.current, {
-          center: MAP_CENTER,
-          zoom: 15,
-        });
-
-        const infoWindow = new google.maps.InfoWindow();
-        const service = new google.maps.places.PlacesService(map);
-
-        service.getDetails(
-          {
-            placeId: PLACE_ID,
-            fields: ["name", "formatted_address", "place_id", "geometry"],
-          },
-          (placeResult, status) => {
-            if (cancelled) return;
-
-            if (
-              status !== google.maps.places.PlacesServiceStatus.OK ||
-              !placeResult?.geometry?.location
-            ) {
-              setError("Unable to load place details.");
-              setLoading(false);
-              return;
-            }
-
-            const details: PlaceDetails = {
-              name: placeResult.name ?? "Unknown place",
-              formattedAddress: placeResult.formatted_address ?? "",
-              placeId: placeResult.place_id ?? PLACE_ID,
-            };
-
-            setPlace(details);
-            setLoading(false);
-
-            const marker = new google.maps.Marker({
-              map,
-              position: placeResult.geometry.location,
-              title: details.name,
-            });
-
-            const openInfoWindow = () => {
-              const content = document.createElement("div");
-              content.style.maxWidth = "240px";
-
-              const title = document.createElement("h3");
-              title.textContent = details.name;
-              title.style.margin = "0 0 8px";
-              content.appendChild(title);
-
-              const address = document.createElement("p");
-              address.textContent = details.formattedAddress;
-              address.style.margin = "0 0 8px";
-              content.appendChild(address);
-
-              const id = document.createElement("p");
-              id.textContent = details.placeId;
-              id.style.margin = "0";
-              id.style.fontSize = "12px";
-              id.style.color = "#666";
-              content.appendChild(id);
-
-              infoWindow.setContent(content);
-              infoWindow.setOptions({ ariaLabel: details.name });
-              infoWindow.open(map, marker);
-            };
-
-            marker.addListener("click", openInfoWindow);
-            openInfoWindow();
+        const map = mapInstanceRef.current;
+        if (map) {
+          map.panTo({ lat, lng });
+          if (map.getZoom()! < USER_LOCATION_ZOOM) {
+            map.setZoom(USER_LOCATION_ZOOM);
           }
-        );
-      } catch {
-        if (!cancelled) {
-          setError("Google Maps failed to load.");
-          setLoading(false);
+          pendingUserLocationRef.current = null;
         }
-      }
-    }
 
-    initMap();
+        if (geoSiteAddedRef.current) return;
+        geoSiteAddedRef.current = true;
 
-    return () => {
-      cancelled = true;
-    };
+        const address = await fetchReverseGeocode(lat, lng);
+        void addAndAnalyzeRef.current(address, lat, lng);
+      },
+      (err) => {
+        setGeoStatus(
+          err.code === err.PERMISSION_DENIED ? "denied" : "unavailable"
+        );
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+    );
   }, []);
 
+  const handlePlaceSelect = useCallback(
+    (place: { address: string; lat: number; lng: number }) => {
+      void addAndAnalyze(place.address, place.lat, place.lng);
+    },
+    [addAndAnalyze]
+  );
+
+  const handleMapClick = useCallback(
+    async (lat: number, lng: number) => {
+      if (usage && usage.remaining <= 0) {
+        setQuotaModalUsage(usage);
+        setError("Monthly analysis limit reached");
+        return;
+      }
+
+      const site = createSiteCandidate({
+        address: `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+        lat,
+        lng,
+        stage: "pending",
+      });
+      setSites((prev) => [...prev, site]);
+      setSelectedId(site.id);
+
+      const address = await fetchReverseGeocode(lat, lng);
+      setSites((prev) =>
+        prev.map((s) => (s.id === site.id ? { ...s, address } : s))
+      );
+      await runAnalysis(site.id, lat, lng);
+    },
+    [runAnalysis, usage]
+  );
+
+  const handleAddSite = useCallback(() => {
+    const offset = sites.length * 0.002;
+    void addAndAnalyze(
+      "New site — drag map or search to refine",
+      mapCenter.lat + offset,
+      mapCenter.lng + offset
+    );
+  }, [addAndAnalyze, mapCenter, sites.length]);
+
+  const handleMapReady = useCallback((map: google.maps.Map) => {
+    mapInstanceRef.current = map;
+
+    const pending = pendingUserLocationRef.current;
+    if (pending) {
+      map.panTo(pending);
+      if (map.getZoom()! < USER_LOCATION_ZOOM) {
+        map.setZoom(USER_LOCATION_ZOOM);
+      }
+      pendingUserLocationRef.current = null;
+    }
+  }, []);
+
+  const handleAnalyzeSite = useCallback(
+    (id: string) => {
+      const site = sites.find((s) => s.id === id);
+      if (!site) return;
+      void runAnalysis(id, site.lat, site.lng);
+    },
+    [runAnalysis, sites]
+  );
+
+  const handleStageChange = useCallback((id: string, stage: SiteStage) => {
+    setSites((prev) =>
+      prev.map((site) => (site.id === id ? { ...site, stage } : site))
+    );
+  }, []);
+
+  const handleRemoveSite = useCallback((id: string) => {
+    setSites((prev) => prev.filter((s) => s.id !== id));
+    setSelectedId((current) => (current === id ? null : current));
+  }, []);
+
+  const handleNewAnalysis = useCallback(() => {
+    setSites([]);
+    setSelectedId(null);
+    setError(null);
+  }, []);
+
+  if (!process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY) {
+    return (
+      <div className="flex h-full items-center justify-center bg-slate-100 p-6">
+        <p className="max-w-md rounded-xl bg-white p-6 text-center text-sm text-red-600 shadow-panel">
+          Missing NEXT_PUBLIC_GOOGLE_MAPS_API_KEY. Add it to .env.local to load
+          the map workspace.
+        </p>
+      </div>
+    );
+  }
+
   return (
-    <>
-      <div ref={mapRef} style={{ width: "100%", height: "100%" }} />
+    <div className="relative h-full w-full">
+      <MapCanvas
+        sites={sites}
+        selectedId={selectedId}
+        defaultCenter={mapCenter}
+        onMapClick={handleMapClick}
+        onMarkerClick={setSelectedId}
+        onMapReady={handleMapReady}
+      />
 
-      {(loading || place || error) && (
-        <aside
-          style={{
-            position: "absolute",
-            top: 16,
-            left: 16,
-            zIndex: 1,
-            width: "min(320px, calc(100vw - 32px))",
-            padding: "16px",
-            borderRadius: 12,
-            background: "rgba(255, 255, 255, 0.96)",
-            boxShadow: "0 8px 24px rgba(0, 0, 0, 0.12)",
-          }}
-        >
-          {loading && !error && <p style={{ margin: 0 }}>Loading place details…</p>}
-
-          {error && (
-            <p style={{ margin: 0, color: "#b42318" }}>{error}</p>
-          )}
-
-          {place && (
-            <>
-              <h1
-                style={{
-                  margin: "0 0 8px",
-                  fontSize: "1.125rem",
-                  lineHeight: 1.3,
-                }}
-              >
-                {place.name}
-              </h1>
-              <p style={{ margin: "0 0 8px", color: "#444" }}>
-                {place.formattedAddress}
-              </p>
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: "0.75rem",
-                  color: "#666",
-                  wordBreak: "break-all",
-                }}
-              >
-                {place.placeId}
-              </p>
-            </>
-          )}
-        </aside>
+      {geoStatus === "pending" && (
+        <div className="pointer-events-none absolute left-1/2 top-4 z-30 -translate-x-1/2 rounded-lg bg-white/95 px-4 py-2 text-sm text-slate-600 shadow-panel backdrop-blur-sm">
+          Locating your position…
+        </div>
       )}
-    </>
+
+      {geoStatus === "denied" && (
+        <div className="pointer-events-none absolute left-1/2 top-4 z-30 max-w-sm -translate-x-1/2 rounded-lg bg-amber-50 px-4 py-2 text-center text-sm text-amber-800 shadow-panel">
+          Location access denied — search or click the map to pick a site
+        </div>
+      )}
+
+      <SitePanel
+        sites={sites}
+        selectedId={selectedId}
+        analyzingIds={analyzingIds}
+        isAnalyzing={isAnalyzing}
+        usage={usage}
+        onSelectSite={setSelectedId}
+        onAddSite={handleAddSite}
+        onStageChange={handleStageChange}
+        onNewAnalysis={handleNewAnalysis}
+        onPlaceSelect={handlePlaceSelect}
+        onAnalyzeSite={handleAnalyzeSite}
+        onExport={handleExport}
+        exportCount={exportableSites.length}
+      />
+
+      <SiteDetailDrawer
+        site={selectedSite}
+        analyzing={selectedId ? analyzingIds.has(selectedId) : false}
+        onClose={() => setSelectedId(null)}
+        onRemove={handleRemoveSite}
+        onReanalyze={handleAnalyzeSite}
+        onOpenStreetView={setStreetViewSite}
+        onExport={handleExport}
+        canExport={Boolean(selectedSite?.analysis)}
+      />
+
+      {streetViewSite && (
+        <StreetViewModal
+          lat={streetViewSite.lat}
+          lng={streetViewSite.lng}
+          address={streetViewSite.address}
+          onClose={() => setStreetViewSite(null)}
+        />
+      )}
+
+      {quotaModalUsage && (
+        <QuotaModal
+          usage={quotaModalUsage}
+          onClose={() => setQuotaModalUsage(null)}
+        />
+      )}
+
+      {error && (
+        <div className="pointer-events-auto absolute bottom-4 left-1/2 z-40 max-w-sm -translate-x-1/2 rounded-lg bg-red-600 px-4 py-2 text-center text-sm text-white shadow-lg">
+          {error}
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            className="ml-2 underline opacity-80"
+          >
+            dismiss
+          </button>
+        </div>
+      )}
+    </div>
   );
 }

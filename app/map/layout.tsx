@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import Script from "next/script";
 
 export const metadata: Metadata = {
-  title: "Place Details Map",
-  description: "Google Maps with place details",
+  title: "Site Analysis Map | Store Location Analyzer",
+  description:
+    "Map-first workspace to search, score, and compare retail site candidates.",
 };
 
 const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -21,16 +22,7 @@ export default function MapLayout({
           strategy="afterInteractive"
         />
       ) : null}
-      <div
-        style={{
-          position: "relative",
-          width: "100vw",
-          height: "100vh",
-          margin: 0,
-          padding: 0,
-          overflow: "hidden",
-        }}
-      >
+      <div className="relative h-screen w-screen overflow-hidden bg-slate-200">
         {children}
       </div>
     </>
