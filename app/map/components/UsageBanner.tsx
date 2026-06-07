@@ -35,12 +35,6 @@ export default function UsageBanner({ usage }: UsageBannerProps) {
 
         {atLimit ? (
           <span className="flex flex-wrap gap-2">
-            <Link
-              href="/login?redirect=/map"
-              className="font-medium text-brand-700 underline"
-            >
-              Sign in
-            </Link>
             <Link href="/#pricing" className="font-medium underline">
               View Pro
             </Link>

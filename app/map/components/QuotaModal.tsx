@@ -31,12 +31,6 @@ export default function QuotaModal({ usage, onClose }: QuotaModalProps) {
           >
             View Pro plans
           </Link>
-          <Link
-            href="/login?redirect=/map"
-            className="rounded-lg border border-slate-200 py-2.5 text-center text-sm font-medium text-slate-700 hover:bg-slate-50"
-          >
-            Sign in
-          </Link>
           <button
             type="button"
             onClick={onClose}

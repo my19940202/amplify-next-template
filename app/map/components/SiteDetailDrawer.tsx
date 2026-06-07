@@ -1,5 +1,13 @@
 "use client";
 
+import {
+  FaArrowsRotate,
+  FaLocationDot,
+  FaSpinner,
+  FaStreetView,
+  FaTrashCan,
+  FaXmark,
+} from "react-icons/fa6";
 import type { ExportFormat } from "@/lib/report/export-client";
 import type { SiteCandidate } from "@/lib/types/site";
 import ExportMenu from "./ExportMenu";
@@ -56,14 +64,20 @@ export default function SiteDetailDrawer({
       />
 
       <div className="pointer-events-auto absolute z-30 overflow-y-auto rounded-2xl bg-white/95 p-4 shadow-panel backdrop-blur-sm
-        bottom-4 right-4 max-h-[calc(100vh-6rem)] w-[min(360px,calc(100vw-2rem))]
-        max-md:fixed max-md:inset-x-0 max-md:bottom-[48vh] max-md:top-16 max-md:w-full max-md:max-h-none max-md:rounded-none max-md:rounded-t-2xl">
+        top-4 right-4 max-h-[calc(100vh-6rem)] w-[min(360px,calc(100vw-2rem))]
+        max-md:fixed max-md:inset-x-0 max-md:w-full max-md:max-h-none max-md:rounded-none max-md:rounded-t-2xl">
         <div className="mb-3 flex items-start justify-between gap-2">
           <div>
             <h2 className="text-sm font-semibold text-slate-900">
               Site Details
             </h2>
-            <p className="mt-1 text-xs text-slate-500">{site.address}</p>
+            <p className="mt-1 flex items-start gap-1.5 text-xs text-slate-500">
+              <FaLocationDot
+                className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-600"
+                aria-hidden
+              />
+              {site.address}
+            </p>
           </div>
           <button
             type="button"
@@ -71,12 +85,16 @@ export default function SiteDetailDrawer({
             className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
             aria-label="Close details"
           >
-            ✕
+            <FaXmark className="h-3.5 w-3.5" />
           </button>
         </div>
 
         {analyzing && (
-          <p className="mb-3 rounded-lg bg-brand-50 px-3 py-2 text-xs text-brand-700">
+          <p className="mb-3 flex items-center gap-2 rounded-lg bg-brand-50 px-3 py-2 text-xs text-brand-700">
+            <FaSpinner
+              className="h-3.5 w-3.5 shrink-0 animate-spin"
+              aria-hidden
+            />
             Running competitor, traffic, and amenities analysis…
           </p>
         )}
@@ -177,8 +195,9 @@ export default function SiteDetailDrawer({
             <button
               type="button"
               onClick={() => onOpenStreetView(site)}
-              className="flex-1 rounded-lg border border-slate-200 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-slate-200 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
             >
+              <FaStreetView className="h-3.5 w-3.5" aria-hidden />
               Street View
             </button>
           )}
@@ -187,8 +206,9 @@ export default function SiteDetailDrawer({
               type="button"
               onClick={() => onReanalyze(site.id)}
               disabled={analyzing}
-              className="flex-1 rounded-lg border border-slate-200 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-slate-200 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
             >
+              <FaArrowsRotate className="h-3.5 w-3.5" aria-hidden />
               Re-analyze
             </button>
           )}
@@ -203,8 +223,9 @@ export default function SiteDetailDrawer({
           <button
             type="button"
             onClick={() => onRemove(site.id)}
-            className="rounded-lg border border-red-200 px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-50"
+            className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-red-200 px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-50"
           >
+            <FaTrashCan className="h-3.5 w-3.5" aria-hidden />
             Remove
           </button>
         </div>

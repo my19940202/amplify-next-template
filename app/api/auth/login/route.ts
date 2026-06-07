@@ -7,7 +7,7 @@ export async function POST(request: Request) {
 
     if (!email || !password) {
       return NextResponse.json(
-        { error: '邮箱和密码不能为空' },
+        { error: 'Email and password are required' },
         { status: 400 }
       )
     }
@@ -27,12 +27,12 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({
-      message: '登录成功',
+      message: 'Signed in successfully',
     })
   } catch (error) {
     console.error('Login error:', error)
     return NextResponse.json(
-      { error: '登录失败，请稍后重试' },
+      { error: 'Sign in failed. Please try again.' },
       { status: 500 }
     )
   }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AnalysisQuotaError,
   fetchReverseGeocode,
@@ -25,22 +25,13 @@ import SitePanel from "./components/SitePanel";
 import StreetViewModal from "./components/StreetViewModal";
 
 const DEFAULT_CENTER = { lat: 37.7749, lng: -122.4194 };
-const USER_LOCATION_ZOOM = 15;
-
-type GeoStatus = "pending" | "granted" | "denied" | "unavailable";
 
 export default function MapWorkspacePage() {
   const [sites, setSites] = useState<SiteCandidate[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [mapCenter, setMapCenter] = useState(DEFAULT_CENTER);
-  const [geoStatus, setGeoStatus] = useState<GeoStatus>("pending");
+  const [mapCenter] = useState(DEFAULT_CENTER);
   const [analyzingIds, setAnalyzingIds] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
-  const mapInstanceRef = useRef<google.maps.Map | null>(null);
-  const geoSiteAddedRef = useRef(false);
-  const pendingUserLocationRef = useRef<{ lat: number; lng: number } | null>(
-    null
-  );
   const [usage, setUsage] = useState<UsageInfo | null>(null);
   const [quotaModalUsage, setQuotaModalUsage] = useState<UsageInfo | null>(
     null
@@ -148,47 +139,6 @@ export default function MapWorkspacePage() {
     [runAnalysis, usage]
   );
 
-  const addAndAnalyzeRef = useRef(addAndAnalyze);
-  addAndAnalyzeRef.current = addAndAnalyze;
-
-  useEffect(() => {
-    if (!navigator.geolocation) {
-      setGeoStatus("unavailable");
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const lat = position.coords.latitude;
-        const lng = position.coords.longitude;
-        setMapCenter({ lat, lng });
-        setGeoStatus("granted");
-        pendingUserLocationRef.current = { lat, lng };
-
-        const map = mapInstanceRef.current;
-        if (map) {
-          map.panTo({ lat, lng });
-          if (map.getZoom()! < USER_LOCATION_ZOOM) {
-            map.setZoom(USER_LOCATION_ZOOM);
-          }
-          pendingUserLocationRef.current = null;
-        }
-
-        if (geoSiteAddedRef.current) return;
-        geoSiteAddedRef.current = true;
-
-        const address = await fetchReverseGeocode(lat, lng);
-        void addAndAnalyzeRef.current(address, lat, lng);
-      },
-      (err) => {
-        setGeoStatus(
-          err.code === err.PERMISSION_DENIED ? "denied" : "unavailable"
-        );
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
-    );
-  }, []);
-
   const handlePlaceSelect = useCallback(
     (place: { address: string; lat: number; lng: number }) => {
       void addAndAnalyze(place.address, place.lat, place.lng);
@@ -230,19 +180,6 @@ export default function MapWorkspacePage() {
       mapCenter.lng + offset
     );
   }, [addAndAnalyze, mapCenter, sites.length]);
-
-  const handleMapReady = useCallback((map: google.maps.Map) => {
-    mapInstanceRef.current = map;
-
-    const pending = pendingUserLocationRef.current;
-    if (pending) {
-      map.panTo(pending);
-      if (map.getZoom()! < USER_LOCATION_ZOOM) {
-        map.setZoom(USER_LOCATION_ZOOM);
-      }
-      pendingUserLocationRef.current = null;
-    }
-  }, []);
 
   const handleAnalyzeSite = useCallback(
     (id: string) => {
@@ -289,20 +226,7 @@ export default function MapWorkspacePage() {
         defaultCenter={mapCenter}
         onMapClick={handleMapClick}
         onMarkerClick={setSelectedId}
-        onMapReady={handleMapReady}
       />
-
-      {geoStatus === "pending" && (
-        <div className="pointer-events-none absolute left-1/2 top-4 z-30 -translate-x-1/2 rounded-lg bg-white/95 px-4 py-2 text-sm text-slate-600 shadow-panel backdrop-blur-sm">
-          Locating your position…
-        </div>
-      )}
-
-      {geoStatus === "denied" && (
-        <div className="pointer-events-none absolute left-1/2 top-4 z-30 max-w-sm -translate-x-1/2 rounded-lg bg-amber-50 px-4 py-2 text-center text-sm text-amber-800 shadow-panel">
-          Location access denied — search or click the map to pick a site
-        </div>
-      )}
 
       <SitePanel
         sites={sites}
