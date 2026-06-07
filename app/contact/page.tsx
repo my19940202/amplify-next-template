@@ -23,10 +23,10 @@ export default function ContactPage() {
         </p>
         <p className="mt-4">
           <a
-            href="mailto:hello@storelocationanalyzer.com"
+            href="mailto:siteselect@163.com"
             className="font-medium text-brand-600 hover:underline"
           >
-            hello@storelocationanalyzer.com
+            siteselect@163.com
           </a>
         </p>
         <p className="mt-8">
